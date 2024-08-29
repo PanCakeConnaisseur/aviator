@@ -65,6 +65,27 @@ def first_open():
             f.write("\n")
         return True
 
+def find_subtitles_in_path(base_path: Path, max_depth : int = 1) -> list[Path]:
+    folder_names = {"subs", "subtitles"} # must be all lowercase
+    extensions = {".srt", ".ass", ".ssa", ".idx"}
+    print(f"find_subtitles_in_path(): started with base_path: {base_path} and max_depth {max_depth}")
+    found_file_paths = []
+
+    if max_depth < 0:
+        return found_file_paths
+
+    for child in base_path.iterdir():
+        print (f"checking child: {child}")  # TODO: remove ddd
+        if child.is_file() and child.suffix.lower() in extensions:
+            print (f"child {child} is file and extensions matches")  # TODO: remove ddd
+            found_file_paths.append(child)
+        elif child.is_dir() and child.name.lower() in folder_names:
+            print (f"child {child} is folder and folder name matches.will descend")  # TODO: remove ddd
+            found_file_paths.extend(find_subtitles_in_path(child, max_depth - 1))
+    print (f"will return with file paths {found_file_paths}.")  # TODO: remove ddd
+    return found_file_paths
+
+
 class FileSelectDialog(Gtk.FileChooserDialog):
     home = Path.home()
 
@@ -392,6 +413,13 @@ class MainWindow(Adw.Window):
             else:
                 afilters_prefix = "-af"
 
+            # subtitles in files
+            if self.container == "mkv":
+                subtitles_paths = find_subtitles_in_path(base_path=Path(self.source_file_absolute).parent)
+                subtitle_path_args = [arg for subtitle_path in subtitles_paths for arg in ["-i", str(subtitle_path)]]
+                subtitle_map_args = [arg for i in range(len(subtitles_paths)) for arg in ["-map", f"{i+1}:s"]]
+            print(f"run_in_thread(): will use subtitle args {subtitle_map_args}.")
+
             cmd = [
                 "ffmpeg",
                 "-nostdin",
@@ -399,6 +427,7 @@ class MainWindow(Adw.Window):
                 "-loglevel", "info",
                 "-y",
                 "-i", self.source_file_absolute,
+                *subtitle_path_args,
                 vfilters_prefix,
                 vfilters,
                 "-map", "0:v",
@@ -416,6 +445,7 @@ class MainWindow(Adw.Window):
                 "-ac", "2" if self.downmix_switch.get_state() else "0",
                 "-map", "0:s?" if self.container == "mkv" else "-0:s",
                 "-c:s", "copy",
+                *subtitle_map_args,
                 "-metadata", "comment=\"Encoded with Aviator\"",
                 output,
             ]
