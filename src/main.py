@@ -7,8 +7,12 @@ import subprocess
 import gi
 import json
 import os
+import re
 import time
 import shutil
+from nltk.tokenize import RegexpTokenizer
+from iso639 import Lang
+from iso639.exceptions import InvalidLanguageValue
 from ffmpeg_progress_yield import FfmpegProgress
 
 from pathlib import Path
@@ -68,7 +72,7 @@ def first_open():
 def find_subtitles_in_path(base_path: Path, max_depth : int = 1) -> list[Path]:
     folder_names = {"subs", "subtitles"} # must be all lowercase
     extensions = {".srt", ".ass", ".ssa", ".idx"}
-    print(f"find_subtitles_in_path(): started with base_path: {base_path} and max_depth {max_depth}")
+    print(f"find_subtitles_in_path(): started with base_path: {base_path} and max_depth {max_depth}") # TODO: remove
     found_file_paths = []
 
     if max_depth < 0:
@@ -84,6 +88,35 @@ def find_subtitles_in_path(base_path: Path, max_depth : int = 1) -> list[Path]:
             found_file_paths.extend(find_subtitles_in_path(child, max_depth - 1))
     print (f"will return with file paths {found_file_paths}.")  # TODO: remove ddd
     return found_file_paths
+
+def count_streams(source_file_absolute) -> int:
+    # Execute the ffmpeg command to list all streams and count subtitle streams
+    result = subprocess.run(
+        ["ffmpeg", "-i", source_file_absolute],
+        stderr=subprocess.PIPE,
+        text=True)
+    # Use grep to filter subtitle streams and count them
+    subtitles_count = len(re.findall(r"Stream #0.*Subtitle:", result.stderr))
+    print(f"count_streams() found {subtitles_count} streams.") # TODO: remove
+    return subtitles_count
+
+tokenizer = RegexpTokenizer(r'[a-zA-Z]+')
+
+def extract_language_from_file_path(path: Path, check_containing_folder: bool = True) -> str | None:
+    tokens = tokenizer.tokenize(path.stem)
+    language = None
+    for token in reversed(tokens):
+        print(f"checking token: {token}") # TODO: remove
+        try:
+            language = Lang(token)
+        except InvalidLanguageValue:
+            continue
+        print(f"will return: {language.pt3}") # TODO: remove
+        return language.pt3
+    # Sometimes language of subtitle is in the folder name
+    if check_containing_folder:
+        return extract_language_from_file_path(path.parent, False)
+    return None
 
 
 class FileSelectDialog(Gtk.FileChooserDialog):
@@ -415,10 +448,16 @@ class MainWindow(Adw.Window):
 
             # subtitles in files
             if self.container == "mkv":
-                subtitles_paths = find_subtitles_in_path(base_path=Path(self.source_file_absolute).parent)
-                subtitle_path_args = [arg for subtitle_path in subtitles_paths for arg in ["-i", str(subtitle_path)]]
-                subtitle_map_args = [arg for i in range(len(subtitles_paths)) for arg in ["-map", f"{i+1}:s"]]
-            print(f"run_in_thread(): will use subtitle args {subtitle_map_args}.")
+                subtitle_paths = find_subtitles_in_path(base_path=Path(self.source_file_absolute).parent)
+                subtitle_path_args = [arg for subtitle_path in subtitle_paths for arg in ["-i", str(subtitle_path)]]
+                subtitle_map_args = [arg for i in range(len(subtitle_paths)) for arg in ["-map", f"{i+1}:s"]]
+                next_subtitle_stream_index = count_streams(self.source_file_absolute)
+                subtitle_metadata_args = []
+                for subtitle_path in subtitle_paths:
+                    language = extract_language_from_file_path(subtitle_path) or "und"
+                    subtitle_metadata_args.extend([f"-metadata:s:s:{next_subtitle_stream_index}", f"language={language}"])
+                    next_subtitle_stream_index += 1
+            print(f"run_in_thread(): will use subtitle args {subtitle_map_args}.") # TODO: remove
 
             cmd = [
                 "ffmpeg",
@@ -446,6 +485,7 @@ class MainWindow(Adw.Window):
                 "-map", "0:s?" if self.container == "mkv" else "-0:s",
                 "-c:s", "copy",
                 *subtitle_map_args,
+                *subtitle_metadata_args,
                 "-metadata", "comment=\"Encoded with Aviator\"",
                 output,
             ]
