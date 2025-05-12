@@ -357,11 +357,11 @@ class MainWindow(Adw.Window):
                     vfilters = "crop" + f"={width}:{height}" if self.crop_toggle.get_active() else "scale" + f"={width}:{height}:flags={method}"
 
             if self.psy_toggle.get_active():
-                tune = 3
-                sharpness = 1
+                psyrd: float = 1.0
+                tune: int = 2
             else:
-                tune = 2
-                sharpness = 0
+                psyrd: float = 0.0
+                tune: int = 1
 
             if self.denoise_toggle.get_active():
                 denoise_val = 1
@@ -406,7 +406,7 @@ class MainWindow(Adw.Window):
                 "-crf", str(int(self.crf_scale.get_value())),
                 "-preset", str(int(self.speed_scale.get_value())),
                 "-pix_fmt", "yuv420p10le",
-                "-svtav1-params", f"film-grain={int(self.grain_scale.get_value())}:" + f"tune={tune}:" + f"sharpness={sharpness}:" + "input-depth=10:enable-qm=1:qm-min=0:keyint=300:aq-mode=2:sharpness=1:" + f"irefresh-type={gop_val}:" + f"film-grain-denoise={denoise_val}",
+                "-svtav1-params", f"film-grain={int(self.grain_scale.get_value())}:" + f"tune={tune}:" + f"psy-rd={psyrd}:" + "input-depth=10:enable-qm=1:qm-min=0:keyint=300:aq-mode=2:" + f"irefresh-type={gop_val}:" + f"film-grain-denoise={denoise_val}",
                 "-map", "0:a?",
                 "-c:a", "copy" if self.audio_copy_switch.get_state() else "libopus",
                 "-mapping_family", "1",
@@ -466,8 +466,7 @@ class AviatorApplication(Adw.Application):
             self.win.present()
 
     def about_dialog(self, *args):
-        about = Adw.AboutWindow(transient_for=self.win,
-                                application_name="Aviator",
+        about = Adw.AboutDialog(application_name="Aviator",
                                 application_icon="net.natesales.Aviator",
                                 developer_name="Nate Sales & Gianni Rosato",
                                 version=self.version,
@@ -504,7 +503,7 @@ class AviatorApplication(Adw.Application):
             copyright='Copyright © 2024 Alliance for Open Media',
             license_type=Gtk.License.BSD,
         )
-        about.present()
+        about.present(self.props.active_window)
 
     def quit(self, action=None, user_data=None):
         exit()
